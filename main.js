@@ -39,7 +39,7 @@ function loadGame() {
 
   interceptionEnabled = false;
 
-  rufflePlayer.load("peggle.swf");
+  rufflePlayer.load("./peggle.swf");
 
   // enable interception AFTER boot
   setTimeout(() => {
