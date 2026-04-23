@@ -3,7 +3,28 @@ let rufflePlayer = null;
 let levelZipBlob = null;
 let bgBlobURL = null;
 
-const GAME_SWF = "peggle.swf"; 
+let interceptionEnabled = false;
+
+const originalFetch = window.fetch;
+
+window.fetch = async (url, opts) => {
+
+  if (!interceptionEnabled) {
+    return originalFetch(url, opts);
+  }
+
+  if (url.includes("funnel.dat.zip") && levelZipBlob) {
+    return new Response(levelZipBlob.slice(0), {
+      headers: { "Content-Type": "application/zip" }
+    });
+  }
+
+  if (url.includes("funnel.jpg") && bgBlobURL) {
+    return originalFetch(bgBlobURL);
+  }
+
+  return originalFetch(url, opts);
+};
 
 function loadGame() {
   document.getElementById("gameContainer").innerHTML = "";
@@ -16,37 +37,17 @@ function loadGame() {
 
   document.getElementById("gameContainer").appendChild(rufflePlayer);
 
-  installFetchInterceptor();
+  interceptionEnabled = false;
 
-  rufflePlayer.load(GAME_SWF);
+  rufflePlayer.load("peggle.swf");
+
+  // enable interception AFTER boot
+  setTimeout(() => {
+    interceptionEnabled = true;
+  }, 2000);
 }
 
-function installFetchInterceptor() {
-  const originalFetch = window.fetch;
-
-  window.fetch = async (url, opts) => {
-
-    // ---- LEVEL ZIP ----
-    if (url.includes("funnel.dat.zip")) {
-      if (levelZipBlob) {
-        return new Response(levelZipBlob.slice(0), {
-          headers: { "Content-Type": "application/zip" }
-        });
-      }
-    }
-
-    if (url.includes("funnel.jpg")) {
-      if (bgBlobURL) {
-        const res = await originalFetch(bgBlobURL);
-        return res;
-      }
-    }
-
-    return originalFetch(url, opts);
-  };
-}
-
-document.getElementById("levelZip").addEventListener("change", async (e) => {
+document.getElementById("levelZip").addEventListener("change", (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
@@ -66,9 +67,9 @@ document.getElementById("bgFile").addEventListener("change", (e) => {
 
 document.getElementById("restart").addEventListener("click", () => {
 
-  window.fetch = window.fetch.__proto__.constructor
-    ? window.fetch.__proto__.constructor
-    : window.fetch;
+  interceptionEnabled = false;
+
+  document.getElementById("gameContainer").innerHTML = "";
 
   loadGame();
 });
