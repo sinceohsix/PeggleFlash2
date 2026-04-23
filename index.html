@@ -1,30 +1,36 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Peggle (Flash)</title>
-
-    <script src="ruffle/ruffle.js"></script>
-
-    <style>
-        body {
-            background: black;
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-        }
-    </style>
+  <meta charset="utf-8" />
+  <title>Peggle Custom Loader</title>
+  <script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
+  <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
 
-<embed
-    src="peggle.swf"
-    width="800"
-    height="600"
-/>
+<div id="ui">
+
+  <h2>Peggle Loader</h2>
+
+  <div class="panel">
+    <label>Level ZIP (funnel.dat.zip)</label>
+    <input type="file" id="levelZip" accept=".zip,.dat.zip">
+  </div>
+
+  <div class="panel">
+    <label>Background Image (funnel.jpg)</label>
+    <input type="file" id="bgFile" accept="image/*">
+    <img id="bgPreview" />
+  </div>
+
+  <button id="restart">Restart Ruffle</button>
+
+</div>
+
+<div id="gameContainer"></div>
+
+<script src="main.js"></script>
 
 </body>
 </html>
