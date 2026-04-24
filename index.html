@@ -33,6 +33,17 @@
     document.getElementById('status').textContent = msg;
   }
 
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+      status('Service worker registered.');
+    }).catch(err => {
+      status('SW error: ' + err.message);
+    });
+  } else {
+    status('Service workers not supported in this browser.');
+  }
+
   document.getElementById('input-dat').addEventListener('change', e => {
     const f = e.target.files[0];
     if (!f) return;
@@ -49,7 +60,26 @@
     status('Loaded: ' + f.name + ' → ' + key);
   });
 
+  async function sendOverridesToSW() {
+    const reg = await navigator.serviceWorker.ready;
+    // Clear previous overrides first
+    reg.active.postMessage({ type: 'CLEAR' });
+    // Send each file as an ArrayBuffer (transferable)
+    for (const [filename, blob] of Object.entries(overrides)) {
+      const buffer = await blob.arrayBuffer();
+      reg.active.postMessage({ type: 'OVERRIDE', filename, buffer }, [buffer]);
+    }
+  }
+
   async function launchRuffle() {
+    if (!('serviceWorker' in navigator)) {
+      status('Cannot launch: service workers not supported.');
+      return;
+    }
+
+    status('Sending overrides to service worker...');
+    await sendOverridesToSW();
+
     const container = document.getElementById('ruffle-container');
 
     if (playerEl) {
@@ -65,22 +95,13 @@
     container.appendChild(playerEl);
 
     playerEl.config = {
-      fetchHandler: async (request) => {
-        const filename = request.url.split('/').pop().split('?')[0];
-        if (overrides[filename]) {
-          status('Serving override: ' + filename);
-          const buf = await overrides[filename].arrayBuffer();
-          return new Response(buf, { status: 200 });
-        }
-        return null;
-      },
       autoplay: 'on',
       unmuteOverlay: 'hidden',
     };
 
     try {
       await playerEl.load('peggle.swf');
-      status('Running.');
+      status('Running. Overrides active.');
     } catch (err) {
       status('Error: ' + err.message);
     }
