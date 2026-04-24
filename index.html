@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -16,12 +15,11 @@
 </head>
 <body>
 
-<label>Level name: <input type="text" id="level-name" value="funnel" /></label>
-<label>.dat.zip: <input type="file" id="input-dat" accept=".zip" /></label>
-<label>.jpg: <input type="file" id="input-jpg" accept=".jpg,.jpeg" /></label>
-<button id="btn-load">Launch</button>
-<button id="btn-restart">Restart Ruffle</button>
-
+  <label>Level name: <input type="text" id="level-name" value="funnel" /></label>
+  <label>.dat.zip: <input type="file" id="input-dat" accept=".zip" /></label>
+  <label>.jpg: <input type="file" id="input-jpg" accept=".jpg,.jpeg" /></label>
+  <button id="btn-load">Launch</button>
+  <button id="btn-restart">Restart Ruffle</button>
   <div id="status">Ready.</div>
   <div id="ruffle-container"></div>
 
@@ -31,6 +29,24 @@
 
   function status(msg) {
     document.getElementById('status').textContent = msg;
+  }
+
+  // Get the active SW, waiting for it to become active if needed
+  async function getActiveSW() {
+    const reg = await navigator.serviceWorker.ready;
+    // .ready resolves only when a SW is active, so this should always be set
+    // but guard just in case
+    if (reg.active) return reg.active;
+    // Fallback: wait for statechange
+    return new Promise(resolve => {
+      const sw = reg.installing || reg.waiting;
+      sw.addEventListener('statechange', function handler() {
+        if (this.state === 'activated') {
+          sw.removeEventListener('statechange', handler);
+          resolve(this);
+        }
+      });
+    });
   }
 
   if ('serviceWorker' in navigator) {
@@ -59,7 +75,6 @@
     status('Loaded: ' + f.name + ' -> ' + key);
   });
 
-  // Send one file to SW and wait for its ACK before resolving
   function sendOne(active, filename, buffer) {
     return new Promise(resolve => {
       const handler = e => {
@@ -73,7 +88,6 @@
     });
   }
 
-  // Send CLEAR and wait for its ACK
   function sendClear(active) {
     return new Promise(resolve => {
       const handler = e => {
@@ -88,8 +102,9 @@
   }
 
   async function sendOverridesToSW() {
-    const reg = await navigator.serviceWorker.ready;
-    const active = reg.active;
+    status('Waiting for service worker...');
+    const active = await getActiveSW();
+    status('Clearing previous overrides...');
     await sendClear(active);
     for (const [filename, blob] of Object.entries(overrides)) {
       const buffer = await blob.arrayBuffer();
@@ -104,7 +119,6 @@
       return;
     }
 
-    status('Sending overrides to SW...');
     await sendOverridesToSW();
     status('All overrides confirmed. Launching...');
 
@@ -138,6 +152,5 @@
   document.getElementById('btn-load').addEventListener('click', launchRuffle);
   document.getElementById('btn-restart').addEventListener('click', launchRuffle);
 </script>
-
 </body>
 </html>
