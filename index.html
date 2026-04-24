@@ -33,15 +33,14 @@
     document.getElementById('status').textContent = msg;
   }
 
-  // Register service worker
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then(reg => {
+    navigator.serviceWorker.register('./sw.js').then(() => {
       status('Service worker registered.');
     }).catch(err => {
       status('SW error: ' + err.message);
     });
   } else {
-    status('Service workers not supported in this browser.');
+    status('Service workers not supported.');
   }
 
   document.getElementById('input-dat').addEventListener('change', e => {
@@ -49,7 +48,7 @@
     if (!f) return;
     const key = document.getElementById('level-name').value.trim() + '.dat.zip';
     overrides[key] = f;
-    status('Loaded: ' + f.name + ' → ' + key);
+    status('Loaded: ' + f.name + ' -> ' + key);
   });
 
   document.getElementById('input-jpg').addEventListener('change', e => {
@@ -57,17 +56,45 @@
     if (!f) return;
     const key = document.getElementById('level-name').value.trim() + '.jpg';
     overrides[key] = f;
-    status('Loaded: ' + f.name + ' → ' + key);
+    status('Loaded: ' + f.name + ' -> ' + key);
   });
+
+  // Send one file to SW and wait for its ACK before resolving
+  function sendOne(active, filename, buffer) {
+    return new Promise(resolve => {
+      const handler = e => {
+        if (e.data.type === 'ACK' && e.data.filename === filename) {
+          navigator.serviceWorker.removeEventListener('message', handler);
+          resolve();
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handler);
+      active.postMessage({ type: 'OVERRIDE', filename, buffer }, [buffer]);
+    });
+  }
+
+  // Send CLEAR and wait for its ACK
+  function sendClear(active) {
+    return new Promise(resolve => {
+      const handler = e => {
+        if (e.data.type === 'ACK' && e.data.action === 'CLEAR') {
+          navigator.serviceWorker.removeEventListener('message', handler);
+          resolve();
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handler);
+      active.postMessage({ type: 'CLEAR' });
+    });
+  }
 
   async function sendOverridesToSW() {
     const reg = await navigator.serviceWorker.ready;
-    // Clear previous overrides first
-    reg.active.postMessage({ type: 'CLEAR' });
-    // Send each file as an ArrayBuffer (transferable)
+    const active = reg.active;
+    await sendClear(active);
     for (const [filename, blob] of Object.entries(overrides)) {
       const buffer = await blob.arrayBuffer();
-      reg.active.postMessage({ type: 'OVERRIDE', filename, buffer }, [buffer]);
+      await sendOne(active, filename, buffer);
+      status('SW confirmed: ' + filename);
     }
   }
 
@@ -77,8 +104,9 @@
       return;
     }
 
-    status('Sending overrides to service worker...');
+    status('Sending overrides to SW...');
     await sendOverridesToSW();
+    status('All overrides confirmed. Launching...');
 
     const container = document.getElementById('ruffle-container');
 
