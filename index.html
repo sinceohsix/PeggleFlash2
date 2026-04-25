@@ -12,12 +12,14 @@
     #status { margin-top: 8px; font-size: 12px; color: #555; }
   </style>
   <script src="https://unpkg.com/@ruffle-rs/ruffle"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body>
 
   <label>Level name: <input type="text" id="level-name" value="funnel" /></label>
-  <label>.dat.zip: <input type="file" id="input-dat" accept=".zip" /></label>
-  <label>.jpg: <input type="file" id="input-jpg" accept=".jpg,.jpeg" /></label>
+  <label>Level bundle (.zip containing [name].dat.zip and [name].jpg):
+    <input type="file" id="input-bundle" accept=".zip" />
+  </label>
   <button id="btn-load">Launch</button>
   <button id="btn-restart">Restart Ruffle</button>
   <div id="status">Ready.</div>
@@ -31,13 +33,19 @@
     document.getElementById('status').textContent = msg;
   }
 
-  // Get the active SW, waiting for it to become active if needed
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(() => {
+      status('Service worker registered.');
+    }).catch(err => {
+      status('SW error: ' + err.message);
+    });
+  } else {
+    status('Service workers not supported.');
+  }
+
   async function getActiveSW() {
     const reg = await navigator.serviceWorker.ready;
-    // .ready resolves only when a SW is active, so this should always be set
-    // but guard just in case
     if (reg.active) return reg.active;
-    // Fallback: wait for statechange
     return new Promise(resolve => {
       const sw = reg.installing || reg.waiting;
       sw.addEventListener('statechange', function handler() {
@@ -49,33 +57,8 @@
     });
   }
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').then(() => {
-      status('Service worker registered.');
-    }).catch(err => {
-      status('SW error: ' + err.message);
-    });
-  } else {
-    status('Service workers not supported.');
-  }
-
-  document.getElementById('input-dat').addEventListener('change', e => {
-    const f = e.target.files[0];
-    if (!f) return;
-    const key = document.getElementById('level-name').value.trim() + '.dat.zip';
-    overrides[key] = f;
-    status('Loaded: ' + f.name + ' -> ' + key);
-  });
-
-  document.getElementById('input-jpg').addEventListener('change', e => {
-    const f = e.target.files[0];
-    if (!f) return;
-    const key = document.getElementById('level-name').value.trim() + '.jpg';
-    overrides[key] = f;
-    status('Loaded: ' + f.name + ' -> ' + key);
-  });
-
   function sendOne(active, filename, buffer) {
+    const copy = buffer.slice(0);
     return new Promise(resolve => {
       const handler = e => {
         if (e.data.type === 'ACK' && e.data.filename === filename) {
@@ -84,7 +67,7 @@
         }
       };
       navigator.serviceWorker.addEventListener('message', handler);
-      active.postMessage({ type: 'OVERRIDE', filename, buffer }, [buffer]);
+      active.postMessage({ type: 'OVERRIDE', filename, buffer: copy }, [copy]);
     });
   }
 
@@ -104,12 +87,80 @@
   async function sendOverridesToSW() {
     status('Waiting for service worker...');
     const active = await getActiveSW();
-    status('Clearing previous overrides...');
     await sendClear(active);
-    for (const [filename, blob] of Object.entries(overrides)) {
-      const buffer = await blob.arrayBuffer();
+    for (const [filename, buffer] of Object.entries(overrides)) {
       await sendOne(active, filename, buffer);
       status('SW confirmed: ' + filename);
+    }
+  }
+
+  async function extractBundle(zipBlob, levelName) {
+    const zip = await JSZip.loadAsync(zipBlob);
+    const datKey = levelName + '.dat.zip';
+    const jpgKey = levelName + '.jpg';
+
+    const datFile = zip.file(datKey);
+    const jpgFile = zip.file(jpgKey);
+
+    if (!datFile && !jpgFile) {
+      status('Error: zip does not contain ' + datKey + ' or ' + jpgKey);
+      return false;
+    }
+
+    if (datFile) {
+      overrides[datKey] = await datFile.async('arraybuffer');
+      status('Extracted: ' + datKey);
+    }
+    if (jpgFile) {
+      overrides[jpgKey] = await jpgFile.async('arraybuffer');
+      status('Extracted: ' + jpgKey);
+    }
+
+    return true;
+  }
+
+  document.getElementById('input-bundle').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const levelName = document.getElementById('level-name').value.trim() || 'funnel';
+    status('Reading bundle...');
+    await extractBundle(f, levelName);
+  });
+
+  async function loadFromURL(url, levelName) {
+    status('Fetching ' + url + '...');
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (err) {
+      status('Fetch error: ' + err.message);
+      return false;
+    }
+    if (!res.ok) {
+      status('Fetch failed: ' + res.status + ' ' + res.statusText);
+      return false;
+    }
+    const blob = await res.blob();
+    return await extractBundle(blob, levelName);
+  }
+
+  async function checkURLParams() {
+    const params = new URLSearchParams(window.location.search);
+    const levelURL = params.get('level');
+    if (!levelURL) return;
+
+    let levelName = params.get('name');
+    if (!levelName) {
+      const stem = levelURL.split('/').pop().split('?')[0].replace(/\.zip$/i, '');
+      levelName = stem || 'funnel';
+    }
+
+    document.getElementById('level-name').value = levelName;
+    status('URL parameter detected, loading level...');
+    const ok = await loadFromURL(levelURL, levelName);
+    if (ok) {
+      status('Remote level loaded. Launching...');
+      await launchRuffle();
     }
   }
 
@@ -151,6 +202,10 @@
 
   document.getElementById('btn-load').addEventListener('click', launchRuffle);
   document.getElementById('btn-restart').addEventListener('click', launchRuffle);
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.ready.then(checkURLParams);
+  });
 </script>
 </body>
 </html>
